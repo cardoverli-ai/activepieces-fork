@@ -1,0 +1,118 @@
+name: List Pieces
+
+on:
+  workflow_dispatch:
+
+jobs:
+  list-pieces:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: List all pieces
+        run: |
+          COMMUNITY_COUNT=$(ls -d packages/pieces/community/*/ 2>/dev/null | wc -l)
+          CORE_COUNT=$(ls -d packages/pieces/core/*/ 2>/dev/null | wc -l)
+
+          {
+            echo "# NAPIER / NODEXIER — Activepieces Pieces Inventory"
+            echo ""
+            echo "## Summary"
+            echo ""
+            echo "| Package | Count | Action |"
+            echo "|---|---|---|"
+            echo "| Community Pieces | $COMMUNITY_COUNT | YOU CHOOSE |"
+            echo "| Core Utility Pieces | $CORE_COUNT | KEEP ALL |"
+            echo "| Framework | 1 | KEEP |"
+            echo "| Common | 1 | KEEP |"
+            echo "| Server | 1 | KEEP |"
+            echo "| Shared | 1 | KEEP |"
+            echo ""
+            echo "---"
+            echo ""
+            echo "## Core Utility Pieces (27 — KEEP ALL)"
+            echo ""
+            echo "These are foundational pieces used by flows internally. Do NOT delete."
+            echo ""
+            for dir in packages/pieces/core/*/; do
+              name=$(basename "$dir")
+              echo "- \`$name\`"
+            done
+            echo ""
+            echo "---"
+            echo ""
+            echo "## Community Pieces ($COMMUNITY_COUNT total — CHOOSE WHICH TO KEEP)"
+            echo ""
+            echo "### Mobile-Relevant (SUGGESTED KEEP — 24 pieces)"
+            echo ""
+            echo "These cover messaging, social, email, payments, storage — the apps your target users actually use."
+            echo ""
+            echo "| # | Piece Name |"
+            echo "|---|---|"
+            i=1
+            for name in whatsapp telegram-bot instagram-business facebook-leads facebook-pages youtube twitter gmail google-sheets google-drive google-calendar google-contacts notion slack discord shopify stripe twilio openai airtable mailchimp calendly github spotify; do
+              if [ -d "packages/pieces/community/$name" ]; then
+                echo "| $i | \`$name\` |"
+                i=$((i+1))
+              fi
+            done
+            echo ""
+            echo "### All Other Community Pieces (DELETE BY DEFAULT)"
+            echo ""
+            echo "Review these. If any are needed, add to your keep list. Otherwise they will be deleted."
+            echo ""
+            echo "| # | Piece Name |"
+            echo "|---|---|"
+            i=1
+            for dir in packages/pieces/community/*/; do
+              name=$(basename "$dir")
+              case "$name" in
+                whatsapp|telegram-bot|instagram-business|facebook-leads|facebook-pages|youtube|twitter|gmail|google-sheets|google-drive|google-calendar|google-contacts|notion|slack|discord|shopify|stripe|twilio|openai|airtable|mailchimp|calendly|github|spotify)
+                  ;;
+                *)
+                  echo "| $i | \`$name\` |"
+                  i=$((i+1))
+                  ;;
+              esac
+            done
+            echo ""
+            echo "---"
+            echo ""
+            echo "## How to Choose"
+            echo ""
+            echo "1. Review the mobile-relevant list above (suggested keep — 24 pieces)"
+            echo "2. Review the full list — add any others you want"
+            echo "3. Comment on this issue with your final keep list, comma-separated:"
+            echo "   \`keep: whatsapp, telegram-bot, gmail, google-sheets, notion, slack\`"
+            echo "4. OR just comment \`use suggested\` to keep the 24 mobile-relevant pieces"
+            echo ""
+            echo "After you comment, the **Clean and Push** workflow will be triggered to delete the rest and push to dev repo."
+          } > pieces-list.md
+
+      - name: Create Issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('pieces-list.md', 'utf8');
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '📋 Pieces Inventory — Choose which community pieces to keep',
+              body: body,
+              labels: ['pieces-review']
+            });
+            console.log('ISSUE_URL=' + issue.data.html_url);
+
+      - name: Done
+        run: |
+          echo "============================================"
+          echo "ISSUE CREATED — Check the Issues tab on the repo"
+          echo "============================================"
+          echo "URL: https://github.com/cardoverli-ai/activepieces-fork/issues"
