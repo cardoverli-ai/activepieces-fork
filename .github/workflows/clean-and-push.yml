@@ -1,0 +1,137 @@
+name: Clean and Push
+
+on:
+  workflow_dispatch:
+    inputs:
+      keep_list:
+        description: 'Comma-separated list of community pieces to KEEP (e.g. whatsapp,telegram-bot,gmail,google-sheets)'
+        required: true
+        type: string
+
+jobs:
+  clean-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Delete unwanted community pieces
+        id: delete
+        run: |
+          KEEP_LIST="${{ github.event.inputs.keep_list }}"
+          # Normalize: lowercase, remove spaces
+          KEEP_LIST=$(echo "$KEEP_LIST" | tr '[:upper:]' '[:lower:]' | tr -d ' ')
+
+          echo "=== Keep list ==="
+          echo "$KEEP_LIST"
+          echo ""
+
+          IFS=',' read -ra KEEP_ARRAY <<< "$KEEP_LIST"
+
+          keep_piece() {
+            local piece=$1
+            for keep in "${KEEP_ARRAY[@]}"; do
+              if [ "$piece" = "$keep" ]; then
+                return 0
+              fi
+            done
+            return 1
+          }
+
+          DELETED=0
+          KEPT=0
+          for dir in packages/pieces/community/*/; do
+            name=$(basename "$dir")
+            if keep_piece "$name"; then
+              echo "KEEP: $name"
+              KEPT=$((KEPT+1))
+            else
+              echo "DELETE: $name"
+              rm -rf "$dir"
+              DELETED=$((DELETED+1))
+            fi
+          done
+
+          echo ""
+          echo "=== Summary ==="
+          echo "Kept: $KEPT community pieces"
+          echo "Deleted: $DELETED community pieces"
+          echo "Core pieces: $(ls -d packages/pieces/core/*/ | wc -l) (untouched)"
+          echo "Framework: present (untouched)"
+          echo "Common: present (untouched)"
+          echo "Server: present (untouched)"
+          echo "Shared: present (untouched)"
+
+          echo "kept=$KEPT" >> $GITHUB_OUTPUT
+          echo "deleted=$DELETED" >> $GITHUB_OUTPUT
+
+      - name: Commit deletions to fork
+        env:
+          KEPT: ${{ steps.delete.outputs.kept }}
+          DELETED: ${{ steps.delete.outputs.deleted }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: delete ${DELETED} unwanted community pieces (kept ${KEPT})
+
+          Triggered by @${{ github.actor }}
+          Keep list: ${{ github.event.inputs.keep_list }}" || echo "Nothing to commit"
+          git push
+
+      - name: Checkout dev repo
+        uses: actions/checkout@v4
+        with:
+          repository: cardoverli-ai/nodexier-dev
+          token: ${{ secrets.DEV_REPO_TOKEN }}
+          path: dev-repo
+          fetch-depth: 0
+
+      - name: Copy cleaned packages to dev repo
+        run: |
+          # Remove existing packages in dev repo (if any)
+          rm -rf dev-repo/packages
+          # Copy cleaned packages
+          cp -r packages dev-repo/packages
+
+      - name: Commit and push to dev repo
+        env:
+          KEPT: ${{ steps.delete.outputs.kept }}
+          DELETED: ${{ steps.delete.outputs.deleted }}
+        run: |
+          cd dev-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: push cleaned packages/ from fork
+
+          - Community pieces: ${KEPT} kept, ${DELETED} deleted
+          - Core pieces: all 27 kept
+          - Framework, Common, Server, Shared: intact
+          - Triggered by @${{ github.actor }}
+
+          Source: cardoverli-ai/activepieces-fork@${{ github.sha }}" || echo "Nothing to commit"
+          git push
+
+      - name: Summary
+        env:
+          KEPT: ${{ steps.delete.outputs.kept }}
+          DELETED: ${{ steps.delete.outputs.deleted }}
+        run: |
+          echo "============================================"
+          echo "CLEAN AND PUSH COMPLETE"
+          echo "============================================"
+          echo ""
+          echo "Fork repo: https://github.com/cardoverli-ai/activepieces-fork"
+          echo "Dev repo:  https://github.com/cardoverli-ai/nodexier-dev"
+          echo ""
+          echo "Community pieces kept:    ${KEPT}"
+          echo "Community pieces deleted: ${DELETED}"
+          echo ""
+          echo "Dev repo now has clean packages/ ready for build."
+          echo "============================================"
